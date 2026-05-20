@@ -42,6 +42,10 @@ buildLinux (args // {
       name = "Hack-to-select-VIDEOBUF2_DMA_CONTIG";
       patch = ./0002-Hack-to-select-VIDEOBUF2_DMA_CONTIG.patch;
     }
+    {
+      name = "crypto-engine-Fix-use-after-free-of-backlog";
+      patch = ./0003-crypto-engine-Fix-use-after-free-of-backlog-reques.patch;
+    }
   ] ++ kernelPatches;
 
   structuredExtraConfig = with lib.kernel; {

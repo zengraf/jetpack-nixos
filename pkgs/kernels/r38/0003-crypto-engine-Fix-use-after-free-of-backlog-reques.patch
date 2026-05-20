@@ -1,0 +1,54 @@
+From cdf114803370b369bf2a37ba945d75b9d5597fc4 Mon Sep 17 00:00:00 2001
+From: Hlib Hraif <hlib.hraif@gmail.com>
+Date: Wed, 20 May 2026 19:07:19 +0200
+Subject: [PATCH] crypto: engine - Fix use-after-free of backlog request
+
+When the crypto engine queue is full and a new request arrives with
+CRYPTO_TFM_REQ_MAY_BACKLOG, crypto_enqueue_request sets queue->backlog
+to the new request and adds it to the queue. crypto_pump_requests then
+retrieves the backlog via crypto_get_backlog() and removes the first
+entry via crypto_dequeue_request(). However, if the backlog entry is not
+the first entry, it remains in the queue's linked list while being
+completed at the retry: label. The completion callback frees the
+request, but the freed entry is still linked in the queue. When a
+subsequent crypto_dequeue_request attempts list_del() on the freed
+entry, it crashes with:
+
+  list_del corruption, ->next is NULL
+  kernel BUG at lib/list_debug.c:49!
+  crypto_dequeue_request -> crypto_pump_work [crypto_engine]
+
+Fix by removing the backlog from the queue before completing it, but
+only if it was not already removed as the first entry.
+
+Signed-off-by: Hlib Hraif <hlib.hraif@gmail.com>
+---
+ crypto/crypto_engine.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/crypto/crypto_engine.c b/crypto/crypto_engine.c
+index 34effd482..b9b8613bd 100644
+--- a/crypto/crypto_engine.c
++++ b/crypto/crypto_engine.c
+@@ -214,6 +214,18 @@ static void crypto_pump_requests(struct crypto_engine *engine,
+ 	crypto_request_complete(async_req, ret);
+ 
+ retry:
++	/*
++	 * If the backlog entry was not the first entry removed by
++	 * crypto_dequeue_request() above, it is still linked in the queue.
++	 * Remove it before completing to prevent use-after-free when the
++	 * completion callback frees the request.
++	 */
++	if (backlog && backlog != async_req) {
++		spin_lock_irqsave(&engine->queue_lock, flags);
++		list_del(&backlog->list);
++		engine->queue.qlen--;
++		spin_unlock_irqrestore(&engine->queue_lock, flags);
++	}
+ 	if (backlog)
+ 		crypto_request_complete(backlog, -EINPROGRESS);
+ 
+-- 
+2.53.0
+
