@@ -9,6 +9,8 @@ let
     types;
 
   cfg = config.hardware.nvidia-jetpack;
+
+  checkValidSoms = soms: cfg.som == "generic" || lib.lists.any (s: lib.hasPrefix s cfg.som) soms;
 in
 {
   imports = with lib; [
@@ -364,9 +366,17 @@ in
           substituteAll ${./uefi-default-keys.dts} keys.dts
           dtc -I dts -O dtb keys.dts -o $out
         '';
+
+        # Fix DMA cache coherency on Orin HSUARTs by attaching them to the SMMU.
+        # Without this, serial-tegra's non-coherent DMA produces stale zero-filled
+        # cache lines, corrupting RX data on ttyTHS1/ttyTHS2.
+        fixUartDma = pkgs.runCommand "fix-uart-dma.dtbo" { nativeBuildInputs = with pkgs.buildPackages; [ dtc ]; } ''
+          dtc -@ -I dts -O dtb ${./fix-uart-dma.dts} -o $out
+        '';
       in
       (lib.optional (cfg.firmware.initialBootOrder != null) bootOrder) ++
-      (lib.optional cfg.firmware.uefi.secureBoot.enrollDefaultKeys uefiDefaultKeysDtbo);
+      (lib.optional cfg.firmware.uefi.secureBoot.enrollDefaultKeys uefiDefaultKeysDtbo) ++
+      (lib.optional (checkValidSoms [ "orin" ]) fixUartDma);
 
     hardware.nvidia-jetpack.flashScriptOverrides.fuseArgs = lib.mkAfter [ cfg.flashScriptOverrides.configFileName ];
 
