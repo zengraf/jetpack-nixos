@@ -1,0 +1,25 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    fragment@0 {
+        target = <&smmu_niso0>;
+        __overlay__ { };
+    };
+
+    fragment@1 {
+        target-path = "/bus@0/serial@3100000";
+        __overlay__ {
+            iommus = <&smmu_niso0 0x04>;
+            dma-coherent;
+        };
+    };
+
+    fragment@2 {
+        target-path = "/bus@0/serial@3140000";
+        __overlay__ {
+            iommus = <&smmu_niso0 0x04>;
+            dma-coherent;
+        };
+    };
+};
